@@ -554,18 +554,35 @@ class FixedOptimizedMapGenerator:
             return 25000  # Safe fallback
     
     def _calculate_round_scale(self, map_width_meters, target_paper_width_cm=22.0):
-        """LEGACY: Calculate round scale (kept for compatibility)"""
+        """ENHANCED: Calculate round scale in 500 intervals for maximum zoom"""
         paper_width_meters = target_paper_width_cm / 100
         raw_scale = map_width_meters / paper_width_meters
         
-        # Common map scales in thousands
-        common_scales = [
-            5000, 10000, 15000, 20000, 25000, 30000, 40000, 
-            50000, 75000, 100000, 150000, 200000, 250000
-        ]
+        # ENHANCED: Skala dalam interval 500 (500, 1000, 1500, 2000, 2500, etc.)
+        common_scales = []
         
-        # Find the closest common scale
-        best_scale = min(common_scales, key=lambda x: abs(x - raw_scale))
+        # Generate scales in 500 intervals up to 50,000
+        for i in range(1, 101):  # 500 to 50,000 in 500 increments
+            common_scales.append(i * 500)
+        
+        # Add larger scales for very wide areas
+        common_scales.extend([
+            75000, 100000, 125000, 150000, 175000, 200000, 
+            250000, 300000, 400000, 500000
+        ])
+        
+        # Find the scale that provides maximum zoom without losing features
+        # Choose the smallest scale that's >= raw_scale to ensure all features fit
+        suitable_scales = [s for s in common_scales if s >= raw_scale * 0.95]
+        if suitable_scales:
+            best_scale = min(suitable_scales)
+        else:
+            best_scale = max(common_scales)
+        
+        print(f"🎯 Enhanced scale calculation:")
+        print(f"   📏 Raw scale: 1:{raw_scale:.0f}")
+        print(f"   ✅ Selected scale: 1:{best_scale:,} (500-interval)")
+        print(f"   🔍 Zoom optimization: Maximum zoom while showing all features")
         
         return best_scale
     
@@ -1103,8 +1120,8 @@ class FixedOptimizedMapGenerator:
                 ax.set_ylim(fallback_ylim[0], fallback_ylim[1])
                 print(f"   ✅ Applied fallback bounds with enhanced margins")
             
-            # Store target scale for later use
-            self.target_scale = target_scale
+            # Store target scale for later use (already set above)
+            # self.target_scale = optimal_scale (already assigned above)
             
             # FIXED: Clean coordinate grid with NO overlap and vertical Y labels
             self._add_clean_coordinates_and_grid(ax)
@@ -1215,6 +1232,129 @@ class FixedOptimizedMapGenerator:
         except Exception as e:
             print(f"Error adding dynamic labels: {e}")
     
+    def _add_enhanced_dynamic_labels(self, ax, display_gdf):
+        """ENHANCED: Add labels with proper size fitting within features"""
+        try:
+            label_column = None
+            
+            # Find the best column for labeling
+            if 'BLOK' in display_gdf.columns:
+                label_column = 'BLOK'
+            elif 'ID' in display_gdf.columns:
+                label_column = 'ID'
+            elif 'NAME' in display_gdf.columns:
+                label_column = 'NAME'
+            
+            if not label_column:
+                print("⚠️ No suitable label column found")
+                return
+            
+            print(f"🏷️ Using '{label_column}' for enhanced labeling")
+            
+            for idx, row in display_gdf.iterrows():
+                if pd.isna(row[label_column]):
+                    continue
+                
+                geometry = row.geometry
+                label_text = str(row[label_column])
+                
+                # Calculate geometry properties in decimal degrees
+                bounds = geometry.bounds
+                width_deg = bounds[2] - bounds[0]
+                height_deg = bounds[3] - bounds[1]
+                area_deg2 = geometry.area
+                
+                # Estimate area in square meters for decimal coordinates
+                # Rough conversion: 1 degree ≈ 111km at equator
+                lat_center = (bounds[1] + bounds[3]) / 2
+                meters_per_deg = 111320.0 * np.cos(np.radians(lat_center))
+                approx_area_m2 = area_deg2 * (meters_per_deg ** 2)
+                
+                # ENHANCED: Dynamic font sizing based on geometry size
+                diagonal_deg = np.sqrt(width_deg**2 + height_deg**2)
+                
+                # Scale font size based on diagonal and ensure readability
+                if diagonal_deg > 0.02:         # Very large features
+                    font_size = 12
+                    pad_size = 0.4
+                elif diagonal_deg > 0.01:       # Large features  
+                    font_size = 10
+                    pad_size = 0.35
+                elif diagonal_deg > 0.005:      # Medium features
+                    font_size = 9
+                    pad_size = 0.3
+                elif diagonal_deg > 0.002:      # Small features
+                    font_size = 8
+                    pad_size = 0.25
+                elif diagonal_deg > 0.001:      # Very small features
+                    font_size = 7
+                    pad_size = 0.2
+                else:                           # Tiny features
+                    font_size = 6
+                    pad_size = 0.15
+                
+                # ENHANCED: Check if label fits within polygon
+                aspect_ratio = width_deg / height_deg if height_deg > 0 else 1
+                
+                # Smart positioning based on shape
+                centroid = geometry.centroid
+                
+                # For very elongated shapes, adjust position
+                if aspect_ratio > 4:  # Very wide
+                    label_x = centroid.x
+                    label_y = centroid.y + (height_deg * 0.1)
+                elif aspect_ratio < 0.25:  # Very tall
+                    label_x = centroid.x + (width_deg * 0.1)
+                    label_y = centroid.y
+                else:  # Normal proportions
+                    label_x = centroid.x
+                    label_y = centroid.y
+                
+                # Ensure label is within bounds
+                label_x = max(bounds[0], min(label_x, bounds[2]))
+                label_y = max(bounds[1], min(label_y, bounds[3]))
+                
+                # ENHANCED: Different styling for different sizes
+                if diagonal_deg < 0.0005:  # Very tiny features - minimal style
+                    ax.annotate(label_text, xy=(label_x, label_y), 
+                               ha='center', va='center', fontsize=font_size, 
+                               fontweight='bold', color='black',
+                               bbox=dict(boxstyle='round,pad=0.1', 
+                                       facecolor='white', alpha=0.7, 
+                                       edgecolor='none'))
+                else:  # Normal and large features - full style
+                    ax.annotate(label_text, xy=(label_x, label_y), 
+                               ha='center', va='center', fontsize=font_size, 
+                               fontweight='bold', color='black',
+                               bbox=dict(boxstyle='round,pad=' + str(pad_size), 
+                                       facecolor='white', alpha=0.9, 
+                                       edgecolor='black', linewidth=1))
+                
+                # Debug output for very large or very small labels
+                if diagonal_deg > 0.02 or diagonal_deg < 0.0005:
+                    print(f"   🏷️ Label '{label_text}': diagonal={diagonal_deg:.6f}°, font={font_size}pt")
+            
+            print(f"✅ Enhanced dynamic labels added with proper size fitting")
+            
+        except Exception as e:
+            print(f"❌ Error adding enhanced labels: {e}")
+    
+    def _convert_to_display_coordinates(self, gdf):
+        """Convert any CRS to decimal lat/lon for display purposes only"""
+        try:
+            # If already in geographic coordinates (WGS84), return as-is
+            if gdf.crs and 'EPSG:4326' in str(gdf.crs):
+                return gdf
+            
+            # Convert to WGS84 geographic (lat/lon decimal) for display
+            display_gdf = gdf.to_crs('EPSG:4326')
+            print(f"🌍 Converted coordinates for display: {gdf.crs} → EPSG:4326 (lat/lon decimal)")
+            return display_gdf
+            
+        except Exception as e:
+            print(f"⚠️ Coordinate conversion warning: {e}")
+            return gdf
+    
     def _add_clean_coordinates_and_grid(self, ax):
         """FIXED: Add clean coordinates and grid with NO overlap and proper spacing"""
         try:
@@ -1249,31 +1389,58 @@ class FixedOptimizedMapGenerator:
             ax.set_xticks(x_ticks)
             ax.set_yticks(y_ticks)
             
-            # FIXED: Decimal degree coordinate formatting for Belitung (as requested)
+            # ENHANCED: Always display decimal lat/lon coordinates
             def smart_format(tick, is_x=True):
-                """Format coordinates in decimal degrees for Belitung region"""
-                # Convert UTM back to decimal degrees for display
-                if hasattr(self, 'gdf_wgs84') and self.gdf_wgs84 is not None:
-                    # Use WGS84 bounds for coordinate display
-                    bounds_wgs84 = self.gdf_wgs84.total_bounds
-                    if is_x:
-                        # Convert UTM X to longitude and format as decimal
-                        # Approximate conversion for display (Belitung region ~107°E)
-                        lon_range = bounds_wgs84[2] - bounds_wgs84[0]
-                        utm_range = self.gdf.total_bounds[2] - self.gdf.total_bounds[0]
-                        tick_ratio = (tick - self.gdf.total_bounds[0]) / utm_range
-                        approx_lon = bounds_wgs84[0] + (tick_ratio * lon_range)
-                        return f"{approx_lon:.3f}°"
+                """Format coordinates as decimal lat/lon regardless of source CRS"""
+                try:
+                    # Check if we're already in decimal degrees
+                    is_likely_degrees = (xlim[0] >= -180 and xlim[1] <= 180 and 
+                                        ylim[0] >= -90 and ylim[1] <= 90)
+                    
+                    if is_likely_degrees:
+                        # Already in decimal degrees, format directly
+                        if is_x:  # Longitude
+                            return f"{tick:.4f}°E" if tick >= 0 else f"{abs(tick):.4f}°W"
+                        else:  # Latitude  
+                            return f"{tick:.4f}°N" if tick >= 0 else f"{abs(tick):.4f}°S"
                     else:
-                        # Convert UTM Y to latitude and format as decimal
-                        lat_range = bounds_wgs84[3] - bounds_wgs84[1]
-                        utm_range = self.gdf.total_bounds[3] - self.gdf.total_bounds[1]
-                        tick_ratio = (tick - self.gdf.total_bounds[1]) / utm_range
-                        approx_lat = bounds_wgs84[1] + (tick_ratio * lat_range)
-                        return f"{approx_lat:.3f}°"
-                else:
-                    # Fallback to simple decimal format
-                    return f"{tick:.3f}°"
+                        # Convert from projected coordinates to lat/lon
+                        if hasattr(self, 'gdf') and self.gdf is not None:
+                            # Create a point at the tick location and convert to WGS84
+                            from shapely.geometry import Point
+                            import geopandas as gpd
+                            
+                            if is_x:
+                                # Create a point at center Y for X coordinate conversion
+                                center_y = (ylim[0] + ylim[1]) / 2
+                                point = Point(tick, center_y)
+                            else:
+                                # Create a point at center X for Y coordinate conversion
+                                center_x = (xlim[0] + xlim[1]) / 2
+                                point = Point(center_x, tick)
+                            
+                            # Create temporary GeoDataFrame with current CRS
+                            temp_gdf = gpd.GeoDataFrame([1], geometry=[point], crs=self.gdf.crs)
+                            temp_wgs84 = temp_gdf.to_crs('EPSG:4326')
+                            converted_point = temp_wgs84.geometry.iloc[0]
+                            
+                            if is_x:  # Convert X coordinate to longitude
+                                lon = converted_point.x
+                                return f"{lon:.4f}°E" if lon >= 0 else f"{abs(lon):.4f}°W"
+                            else:  # Convert Y coordinate to latitude
+                                lat = converted_point.y
+                                return f"{lat:.4f}°N" if lat >= 0 else f"{abs(lat):.4f}°S"
+                        else:
+                            # Fallback - assume it's already in the right format
+                            return f"{tick:.3f}°"
+                            
+                except Exception as e:
+                    print(f"⚠️ Coordinate conversion error: {e}")
+                    # Safe fallback
+                    if is_x:
+                        return f"{tick:.3f}°E"
+                    else:
+                        return f"{tick:.3f}°N"
             
             x_labels = [smart_format(tick, True) for tick in x_ticks]
             y_labels = [smart_format(tick, False) for tick in y_ticks]
