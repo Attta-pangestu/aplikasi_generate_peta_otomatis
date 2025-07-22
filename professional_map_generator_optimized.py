@@ -502,8 +502,8 @@ class FixedOptimizedMapGenerator:
             paper_width_meters = target_paper_width_cm / 100
             paper_height_meters = target_paper_height_cm / 100
             
-            # Calculate required scale for both dimensions (with safety buffer)
-            safety_buffer = 1.3  # 30% buffer to ensure complete visibility
+            # ENHANCED: Use MINIMAL buffer for MAXIMUM zoom level
+            safety_buffer = 1.10  # Only 10% buffer for maximum zoom!
             
             scale_for_width = (map_width_meters * safety_buffer) / paper_width_meters
             scale_for_height = (map_height_meters * safety_buffer) / paper_height_meters
@@ -511,41 +511,36 @@ class FixedOptimizedMapGenerator:
             # Use the larger scale to ensure both dimensions fit
             required_scale = max(scale_for_width, scale_for_height)
             
-            # ENHANCED: Professional cartographic scales in thousands
-            professional_scales = [
-                1000,    # 1:1,000 (very detailed)
-                2000,    # 1:2,000 
-                5000,    # 1:5,000 (detailed site plans)
-                10000,   # 1:10,000 (detailed area maps)
-                15000,   # 1:15,000
-                20000,   # 1:20,000
-                25000,   # 1:25,000 (standard topographic)
-                30000,   # 1:30,000
-                40000,   # 1:40,000
-                50000,   # 1:50,000 (regional overview)
-                75000,   # 1:75,000
-                100000,  # 1:100,000 (district scale)
-                150000,  # 1:150,000
-                200000,  # 1:200,000
-                250000,  # 1:250,000
-                500000   # 1:500,000 (provincial scale)
-            ]
+            # ENHANCED: Use 500-interval scales for maximum zoom optimization
+            professional_scales_500 = []
             
-            # Find the smallest scale that can accommodate the study area
+            # Generate scales in 500 intervals up to 50,000
+            for i in range(1, 101):  # 500, 1000, 1500, 2000, 2500, ... 50,000
+                professional_scales_500.append(i * 500)
+            
+            # Add larger scales for very wide areas
+            professional_scales_500.extend([
+                75000, 100000, 125000, 150000, 175000, 200000, 
+                250000, 300000, 400000, 500000
+            ])
+            
+            # ENHANCED: Find the SMALLEST scale that accommodates the study area
+            # This provides MAXIMUM zoom level while ensuring visibility
             optimal_scale = None
-            for scale in professional_scales:
+            for scale in professional_scales_500:
                 if scale >= required_scale:
                     optimal_scale = scale
                     break
             
             # Fallback to largest scale if study area is too big
             if optimal_scale is None:
-                optimal_scale = professional_scales[-1]
-                print(f"   ⚠️ Study area very large, using maximum scale")
+                optimal_scale = professional_scales_500[-1]
+                print(f"   ⚠️ Study area very large, using maximum available scale")
             
             print(f"   📏 Required scale (calculated): 1:{required_scale:.0f}")
-            print(f"   🎯 Optimal professional scale: 1:{optimal_scale:,}")
-            print(f"   ✅ GUARANTEED: All features will be visible with 30% buffer")
+            print(f"   🎯 MAXIMUM ZOOM scale (500-interval): 1:{optimal_scale:,}")
+            print(f"   ✅ MAXIMUM ZOOM: All features visible with minimal 10% buffer")
+            print(f"   🔍 Zoom optimization: Using smallest possible scale for maximum detail")
             
             return optimal_scale
             
@@ -1068,8 +1063,8 @@ class FixedOptimizedMapGenerator:
                     traceback.print_exc()
                 print(f"⚠️ Using default color for {len(self.gdf)} features (no attribute-based coloring)")
             
-            # Add DYNAMIC block labels with size based on feature area
-            self._add_dynamic_labels(ax)
+            # Add ENHANCED dynamic labels with optimal size fitting
+            self._add_optimized_dynamic_labels(ax)
             
             # ENHANCED: Calculate OPTIMAL scale ensuring ALL features are visible
             print(f"\n🎯 ENHANCED SCALE AND ZOOM CALCULATION:")
@@ -1338,6 +1333,162 @@ class FixedOptimizedMapGenerator:
             
         except Exception as e:
             print(f"❌ Error adding enhanced labels: {e}")
+    
+    def _add_optimized_dynamic_labels(self, ax):
+        """OPTIMIZED: Add labels with intelligent size scaling based on feature area and map scale"""
+        try:
+            label_column = None
+            
+            # Find the best column for labeling
+            if 'BLOK' in self.gdf.columns:
+                label_column = 'BLOK'
+            elif 'ID' in self.gdf.columns:
+                label_column = 'ID'
+            elif 'NAME' in self.gdf.columns:
+                label_column = 'NAME'
+            elif hasattr(self, 'selected_attribute') and self.selected_attribute:
+                label_column = self.selected_attribute
+            
+            if not label_column:
+                print("⚠️ No suitable label column found for optimized labeling")
+                return
+            
+            print(f"🏷️ Using '{label_column}' for optimized dynamic labeling")
+            
+            # Get current axis limits to understand map scale
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+            map_width_units = xlim[1] - xlim[0]
+            map_height_units = ylim[1] - ylim[0]
+            
+            # Calculate average feature size for reference
+            total_area = sum([geom.area for geom in self.gdf.geometry])
+            avg_feature_area = total_area / len(self.gdf)
+            
+            print(f"📊 Map analysis for optimal labeling:")
+            print(f"   📐 Map dimensions: {map_width_units:.0f} x {map_height_units:.0f} units")
+            print(f"   📏 Average feature area: {avg_feature_area:.0f} square units")
+            
+            labels_added = 0
+            for idx, row in self.gdf.iterrows():
+                if pd.isna(row[label_column]):
+                    continue
+                
+                geometry = row.geometry
+                label_text = str(row[label_column])
+                
+                # Calculate feature properties
+                bounds = geometry.bounds
+                feature_width = bounds[2] - bounds[0]
+                feature_height = bounds[3] - bounds[1]
+                feature_area = geometry.area
+                
+                # Calculate relative size compared to map and average feature
+                width_ratio = feature_width / map_width_units
+                height_ratio = feature_height / map_height_units
+                area_ratio = feature_area / avg_feature_area
+                
+                # ENHANCED: Intelligent font sizing based on multiple factors
+                # Base font size from feature area relative to average
+                if area_ratio > 4:           # Very large feature
+                    base_font_size = 14
+                    pad_size = 0.5
+                elif area_ratio > 2:         # Large feature
+                    base_font_size = 12
+                    pad_size = 0.4
+                elif area_ratio > 1:         # Above average feature
+                    base_font_size = 10
+                    pad_size = 0.35
+                elif area_ratio > 0.5:       # Average feature
+                    base_font_size = 9
+                    pad_size = 0.3
+                elif area_ratio > 0.25:      # Small feature
+                    base_font_size = 8
+                    pad_size = 0.25
+                elif area_ratio > 0.1:       # Very small feature
+                    base_font_size = 7
+                    pad_size = 0.2
+                else:                        # Tiny feature
+                    base_font_size = 6
+                    pad_size = 0.15
+                
+                # ENHANCED: Adjust font size based on map scale
+                # Smaller fonts for zoomed out views, larger for zoomed in
+                if hasattr(self, 'target_scale') and self.target_scale:
+                    if self.target_scale >= 50000:      # Zoomed out
+                        scale_factor = 0.8
+                    elif self.target_scale >= 25000:    # Medium zoom
+                        scale_factor = 0.9
+                    elif self.target_scale >= 10000:    # Zoomed in
+                        scale_factor = 1.0
+                    elif self.target_scale >= 5000:     # Very zoomed in
+                        scale_factor = 1.1
+                    else:                               # Extremely zoomed in
+                        scale_factor = 1.2
+                else:
+                    scale_factor = 1.0
+                
+                final_font_size = max(6, min(16, int(base_font_size * scale_factor)))
+                
+                # ENHANCED: Smart positioning to avoid crowding
+                centroid = geometry.centroid
+                aspect_ratio = feature_width / feature_height if feature_height > 0 else 1
+                
+                # Adjust position based on feature shape
+                if aspect_ratio > 3:  # Very wide feature
+                    label_x = centroid.x
+                    label_y = centroid.y + (feature_height * 0.05)  # Slightly above center
+                elif aspect_ratio < 0.33:  # Very tall feature
+                    label_x = centroid.x + (feature_width * 0.05)   # Slightly right of center
+                    label_y = centroid.y
+                else:  # Normal proportions
+                    label_x = centroid.x
+                    label_y = centroid.y
+                
+                # Ensure label stays within feature bounds
+                label_x = max(bounds[0] + feature_width*0.1, min(label_x, bounds[2] - feature_width*0.1))
+                label_y = max(bounds[1] + feature_height*0.1, min(label_y, bounds[3] - feature_height*0.1))
+                
+                # ENHANCED: Label style based on feature size
+                if area_ratio < 0.1:  # Very tiny features - minimal style
+                    bbox_props = dict(boxstyle='round,pad=0.1', 
+                                    facecolor='white', alpha=0.8, 
+                                    edgecolor='none')
+                    font_weight = 'normal'
+                elif area_ratio < 0.5:  # Small features - simple style
+                    bbox_props = dict(boxstyle='round,pad=' + str(pad_size*0.7), 
+                                    facecolor='white', alpha=0.85, 
+                                    edgecolor='gray', linewidth=0.5)
+                    font_weight = 'bold'
+                else:  # Normal and large features - full style
+                    bbox_props = dict(boxstyle='round,pad=' + str(pad_size), 
+                                    facecolor='white', alpha=0.9, 
+                                    edgecolor='black', linewidth=1)
+                    font_weight = 'bold'
+                
+                # Add the label
+                ax.annotate(label_text, xy=(label_x, label_y), 
+                           ha='center', va='center', 
+                           fontsize=final_font_size, 
+                           fontweight=font_weight,
+                           color='black',
+                           bbox=bbox_props,
+                           zorder=100)  # High zorder to appear on top
+                
+                labels_added += 1
+                
+                # Debug output for size analysis
+                if area_ratio > 2 or area_ratio < 0.2:
+                    print(f"   🏷️ Label '{label_text}': area_ratio={area_ratio:.2f}, font={final_font_size}pt")
+            
+            print(f"✅ Added {labels_added} optimized dynamic labels")
+            print(f"   📏 Font sizes range from 6-16pt based on feature size and map scale")
+            print(f"   🎯 Label size optimization completed")
+            
+        except Exception as e:
+            print(f"❌ Error adding optimized dynamic labels: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _convert_to_display_coordinates(self, gdf):
         """Convert any CRS to decimal lat/lon for display purposes only"""
