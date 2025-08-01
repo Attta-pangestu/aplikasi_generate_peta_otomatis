@@ -472,17 +472,17 @@ class ProfessionalMapGenerator:
     
     def _add_compass_scale_overlay(self, ax):
         """
-        Add compass and scale bar as overlay on main map (improved design)
+        Add compass and scale bar outside the coordinate frame (improved design)
         """
-        # Add scale bar in bottom left corner
-        self._add_scale_bar_overlay(ax)
+        # Add scale bar outside bottom left of coordinate frame
+        self._add_scale_bar_outside(ax)
         
-        # Add compass in top right corner using image
-        self._add_compass_image_overlay(ax)
+        # Add compass outside top right of coordinate frame
+        self._add_compass_outside(ax)
     
-    def _add_scale_bar_overlay(self, ax):
+    def _add_scale_bar_outside(self, ax):
         """
-        Add improved scale bar overlay to main map with CRS info
+        Add scale bar outside the coordinate frame at bottom left with CRS info
         """
         # Get current axis limits to calculate scale
         xlim = ax.get_xlim()
@@ -493,57 +493,57 @@ class ProfessionalMapGenerator:
         # At latitude ~-2.6°, 1 degree longitude ≈ 111 km
         map_width_km = map_width_degrees * 111
         
-        # Determine appropriate scale bar length (make it longer as requested)
+        # Determine appropriate scale bar length
         if map_width_km > 20:
-            scale_km = 8  # 8 km scale bar (longer)
+            scale_km = 8  # 8 km scale bar
         elif map_width_km > 10:
-            scale_km = 4  # 4 km scale bar (longer)
+            scale_km = 4  # 4 km scale bar
         elif map_width_km > 5:
-            scale_km = 2  # 2 km scale bar (longer)
+            scale_km = 2  # 2 km scale bar
         else:
             scale_km = 1  # 1 km scale bar
         
-        # Convert scale to degrees
-        scale_degrees = scale_km / 111  # Approximate conversion
+        # Position scale bar outside the coordinate frame using figure coordinates
+        # Bottom left outside the main map frame
+        fig = ax.get_figure()
         
-        # Position scale bar in bottom left corner with margin
-        margin_x = (xlim[1] - xlim[0]) * 0.05
-        margin_y = (ylim[1] - ylim[0]) * 0.05
-        scale_x = xlim[0] + margin_x
-        scale_y = ylim[0] + margin_y
+        # Create scale bar width in figure coordinates (proportional to map)
+        scale_width_fig = 0.15  # 15% of figure width
+        scale_height_fig = 0.02  # 2% of figure height
         
-        # Create semi-transparent background for scale bar (larger for better spacing)
-        scale_bg_width = scale_degrees * 1.3
-        scale_bg_height = (ylim[1] - ylim[0]) * 0.12  # Taller for CRS info
+        # Position: below the legend area, left aligned
+        scale_x_fig = self.BOX_LEFT_POSITION  # Align with legend box
+        scale_y_fig = 0.30  # Below the legend area
         
+        # Create background rectangle using figure coordinates
         from matplotlib.patches import Rectangle
-        scale_bg = Rectangle((scale_x - scale_degrees * 0.1, scale_y - scale_bg_height * 0.2), 
-                           scale_bg_width, scale_bg_height,
+        scale_bg = Rectangle((scale_x_fig - 0.01, scale_y_fig - 0.005), 
+                           scale_width_fig + 0.02, scale_height_fig + 0.03,
                            facecolor='white', alpha=0.95, edgecolor='black', 
-                           linewidth=1.5, zorder=100)
-        ax.add_patch(scale_bg)
+                           linewidth=1.5, transform=fig.transFigure, zorder=200)
+        fig.patches.append(scale_bg)
         
-        # Create 5 segments alternating black and white (more segments for longer bar)
-        segment_width = scale_degrees / 5
-        segment_height = (ylim[1] - ylim[0]) * 0.018
+        # Create 5 segments alternating black and white
+        segment_width_fig = scale_width_fig / 5
         
         for i in range(5):
-            x_pos = scale_x + (i * segment_width)
+            x_pos = scale_x_fig + (i * segment_width_fig)
             # Alternating colors
             if i % 2 == 0:
                 color = 'black'
             else:
                 color = 'white'
             
-            segment = Rectangle((x_pos, scale_y), segment_width, segment_height,
-                              facecolor=color, edgecolor='black', linewidth=0.8, zorder=101)
-            ax.add_patch(segment)
+            segment = Rectangle((x_pos, scale_y_fig + 0.01), segment_width_fig, scale_height_fig,
+                              facecolor=color, edgecolor='black', linewidth=0.8, 
+                              transform=fig.transFigure, zorder=201)
+            fig.patches.append(segment)
         
-        # Add scale labels with better spacing
+        # Add scale labels
         fifth_km = scale_km / 5
-        label_positions = [scale_x + (i * segment_width) for i in range(6)]
         
-        for i, x_pos in enumerate(label_positions):
+        for i in range(6):
+            x_pos = scale_x_fig + (i * segment_width_fig)
             km_value = fifth_km * i
             if km_value == 0:
                 label = '0'
@@ -552,44 +552,42 @@ class ProfessionalMapGenerator:
             else:
                 label = f'{km_value:.1f}km' if km_value != int(km_value) else f'{int(km_value)}km'
             
-            ax.text(x_pos, scale_y - segment_height * 1.2, label, 
-                   ha='center', va='top', fontsize=9, fontweight='bold',
-                   color='black', zorder=102)
+            fig.text(x_pos, scale_y_fig + 0.005, label, 
+                   ha='center', va='bottom', fontsize=9, fontweight='bold',
+                   color='black', transform=fig.transFigure, zorder=202)
         
         # Add "Scale" title
-        ax.text(scale_x + scale_degrees/2, scale_y + segment_height * 2.0, 'SCALE', 
+        fig.text(scale_x_fig + scale_width_fig/2, scale_y_fig + scale_height_fig + 0.02, 'SKALA', 
                ha='center', va='bottom', fontsize=11, fontweight='bold',
-               color='black', zorder=102)
+               color='black', transform=fig.transFigure, zorder=202)
         
-        # Add CRS and coordinate system information
-        ax.text(scale_x + scale_degrees/2, scale_y - segment_height * 3.0, 
-               'CRS: WGS84 (EPSG:4326)\nCoordinates: Decimal Degrees', 
+        # Add CRS and coordinate system information below the scale bar
+        fig.text(scale_x_fig + scale_width_fig/2, scale_y_fig - 0.05, 
+               'CRS: WGS84 (EPSG:4326)\nKoordinat: Derajat Desimal', 
                ha='center', va='top', fontsize=8, fontweight='normal',
-               color='black', zorder=102)
+               color='black', transform=fig.transFigure, zorder=202)
     
-    def _add_compass_image_overlay(self, ax):
+    def _add_compass_outside(self, ax):
         """
-        Add compass overlay using compass image to main map
+        Add compass outside the coordinate frame at top right
         """
-        # Get current axis limits
-        xlim = ax.get_xlim()
-        ylim = ax.get_ylim()
+        # Position compass outside the coordinate frame using figure coordinates
+        # Top right outside the main map frame
+        fig = ax.get_figure()
         
-        # Position compass in top right corner with margin
-        margin_x = (xlim[1] - xlim[0]) * 0.05
-        margin_y = (ylim[1] - ylim[0]) * 0.05
-        compass_x = xlim[1] - margin_x
-        compass_y = ylim[1] - margin_y
+        # Compass size in figure coordinates
+        compass_size_fig = 0.08  # 8% of figure width/height
         
-        # Compass size (larger for better visibility)
-        compass_size = min((xlim[1] - xlim[0]) * 0.12, (ylim[1] - ylim[0]) * 0.12)
+        # Position: below the legend area, right aligned
+        compass_x_fig = self.BOX_LEFT_POSITION + self.BOX_WIDTH - 0.05  # Right side of legend area
+        compass_y_fig = 0.30  # Below the legend area
         
-        # Create semi-transparent background for compass
+        # Create background circle using figure coordinates
         from matplotlib.patches import Circle
-        compass_bg = Circle((compass_x, compass_y), compass_size * 0.6, 
+        compass_bg = Circle((compass_x_fig, compass_y_fig), compass_size_fig * 0.6, 
                           facecolor='white', alpha=0.95, edgecolor='black', 
-                          linewidth=1.5, zorder=100)
-        ax.add_patch(compass_bg)
+                          linewidth=1.5, transform=fig.transFigure, zorder=200)
+        fig.patches.append(compass_bg)
         
         # Try to load and display compass image
         try:
@@ -598,56 +596,64 @@ class ProfessionalMapGenerator:
             
             # Enhanced debug compass file path
             compass_full_path = os.path.abspath(self.compass_path)
-            print(f"🔍 OVERLAY COMPASS DEBUG: Compass path: {self.compass_path}")
-            print(f"🔍 OVERLAY COMPASS DEBUG: Absolute compass path: {compass_full_path}")
-            print(f"🔍 OVERLAY COMPASS DEBUG: Compass file exists: {os.path.exists(compass_full_path)}")
+            print(f"🔍 OUTSIDE COMPASS DEBUG: Compass path: {self.compass_path}")
+            print(f"🔍 OUTSIDE COMPASS DEBUG: Absolute compass path: {compass_full_path}")
+            print(f"🔍 OUTSIDE COMPASS DEBUG: Compass file exists: {os.path.exists(compass_full_path)}")
             
             if os.path.exists(compass_full_path):
-                print("📁 Loading compass image for overlay...")
+                print("📁 Loading compass image outside coordinate frame...")
                 compass_img = mpimg.imread(compass_full_path)
-                print(f"🖼️ Compass overlay image shape: {compass_img.shape}")
+                print(f"🖼️ Compass outside image shape: {compass_img.shape}")
                 
-                # Calculate compass image extent in data coordinates
-                left = compass_x - compass_size * 0.5
-                right = compass_x + compass_size * 0.5
-                bottom = compass_y - compass_size * 0.5
-                top = compass_y + compass_size * 0.5
+                # Calculate compass image extent in figure coordinates
+                left = compass_x_fig - compass_size_fig * 0.5
+                right = compass_x_fig + compass_size_fig * 0.5
+                bottom = compass_y_fig - compass_size_fig * 0.5
+                top = compass_y_fig + compass_size_fig * 0.5
                 
-                # Display compass image
-                ax.imshow(compass_img, extent=[left, right, bottom, top],
-                         alpha=1.0, zorder=101)
-                print("✅ COMPASS IMAGE OVERLAY LOADED!")
+                # Create axes for compass image with high quality settings
+                compass_ax = fig.add_axes([left, bottom, compass_size_fig, compass_size_fig])
+                compass_ax.imshow(compass_img, alpha=1.0, interpolation='bilinear', 
+                                aspect='equal', resample=True)
+                compass_ax.axis('off')
+                compass_ax.set_xlim(0, compass_img.shape[1])
+                compass_ax.set_ylim(compass_img.shape[0], 0)  # Flip Y axis for proper orientation
+                print("✅ COMPASS IMAGE OUTSIDE LOADED WITH HIGH QUALITY!")
                 
-                # Add "N" label below compass
-                ax.text(compass_x, compass_y - compass_size * 0.7, 'UTARA', 
+                # Add "UTARA" label below compass
+                fig.text(compass_x_fig, compass_y_fig - compass_size_fig * 0.7, 'UTARA', 
                        ha='center', va='center', fontsize=10, fontweight='bold',
-                       color='darkred', zorder=102,
+                       color='darkred', transform=fig.transFigure, zorder=202,
                        bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8))
                 
             else:
                 print("❌ Compass file not found, using simple arrow fallback")
-                # Fallback: simple north arrow
-                arrow_length = compass_size * 0.4
-                ax.annotate('', xy=(compass_x, compass_y + arrow_length), 
-                           xytext=(compass_x, compass_y),
-                           arrowprops=dict(arrowstyle='->', lw=4, color='red'), zorder=101)
+                # Fallback: simple north arrow using figure coordinates
+                arrow_length_fig = compass_size_fig * 0.4
+                
+                # Create arrow using annotation in figure coordinates
+                fig.text(compass_x_fig, compass_y_fig + arrow_length_fig, '↑', 
+                       ha='center', va='center', fontsize=24, fontweight='bold',
+                       color='red', transform=fig.transFigure, zorder=201)
                 
                 # Add north label
-                ax.text(compass_x, compass_y + arrow_length * 1.3, 'N', 
-                       ha='center', va='center', fontsize=14, fontweight='bold',
-                       color='red', zorder=102)
+                fig.text(compass_x_fig, compass_y_fig - arrow_length_fig, 'UTARA', 
+                       ha='center', va='center', fontsize=12, fontweight='bold',
+                       color='red', transform=fig.transFigure, zorder=201)
                 
         except Exception as e:
-            print(f"❌ ERROR loading compass overlay: {e}")
+            print(f"❌ ERROR loading compass outside: {e}")
             # Emergency fallback: simple north arrow
-            arrow_length = compass_size * 0.4
-            ax.annotate('', xy=(compass_x, compass_y + arrow_length), 
-                       xytext=(compass_x, compass_y),
-                       arrowprops=dict(arrowstyle='->', lw=4, color='red'), zorder=101)
+            arrow_length_fig = compass_size_fig * 0.4
             
-            ax.text(compass_x, compass_y + arrow_length * 1.3, 'N', 
-                   ha='center', va='center', fontsize=14, fontweight='bold',
-                   color='red', zorder=102)
+            # Simple arrow using text
+            fig.text(compass_x_fig, compass_y_fig + arrow_length_fig, '↑', 
+                   ha='center', va='center', fontsize=24, fontweight='bold',
+                   color='red', transform=fig.transFigure, zorder=201)
+            
+            fig.text(compass_x_fig, compass_y_fig - arrow_length_fig, 'UTARA', 
+                   ha='center', va='center', fontsize=12, fontweight='bold',
+                   color='red', transform=fig.transFigure, zorder=201)
     
     def _add_north_arrow_and_scale(self, ax):
         """

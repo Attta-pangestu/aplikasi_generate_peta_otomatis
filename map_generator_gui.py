@@ -421,10 +421,10 @@ class MapGeneratorGUI:
         Add default TIFF legend entries for common land use types
         """
         default_entries = [
-            {"color": "#69140c", "description": "Tahap 1"},
-            {"color": "#5b9ddc", "description": "Tahap 2"},
-            {"color": "#d01975", "description": "Tahap 3"},
-            {"color": "#b1e47a", "description": "Tahap 4"}
+            {"color": "#228B22", "description": "Palm Oil Plantation"},
+            {"color": "#8B4513", "description": "Bare Soil"},
+            {"color": "#4169E1", "description": "Water Bodies"},
+            {"color": "#32CD32", "description": "Natural Forest"}
         ]
         
         for entry_data in default_entries:
