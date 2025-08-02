@@ -23,6 +23,12 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 import warnings
 warnings.filterwarnings('ignore')
 
+# Import modular map elements
+from map_elements import (
+    TitleElement, LegendElement, BelitungOverviewElement,
+    LogoInfoElement, CompassElement
+)
+
 class ProfessionalMapGenerator:
     # Standardized box layout constants for consistent horizontal width (WIDENED FOR BETTER VISIBILITY)
     BOX_WIDTH = 0.32  # Standard width for all info boxes (increased from 0.26)
@@ -236,12 +242,16 @@ class ProfessionalMapGenerator:
                 return False
             
         try:
+            # Ensure Belitung data is loaded for the overview map
+            print("Loading Belitung overview data...")
+            self.load_belitung_data()
+            
             # Create figure with professional layout (A3 landscape style)
             fig = plt.figure(figsize=(16.54, 11.69))  # A3 size in inches
             fig.patch.set_facecolor('white')
             
             # Add blue border around entire map
-            border_rect = Rectangle((0.01, 0.01), 0.98, 0.98, 
+            border_rect = Rectangle((0.01, 0.01), 0.98, 0.98,
                                   fill=False, edgecolor='blue', linewidth=3,
                                   transform=fig.transFigure)
             fig.patches.append(border_rect)
@@ -250,52 +260,63 @@ class ProfessionalMapGenerator:
             ax_main = plt.axes([self.MAIN_MAP_LEFT, 0.05, self.MAIN_MAP_WIDTH, 0.93])
             
             # Add border frame for main map
-            main_map_border = Rectangle((self.MAIN_MAP_LEFT, 0.05), self.MAIN_MAP_WIDTH, 0.93, 
+            main_map_border = Rectangle((self.MAIN_MAP_LEFT, 0.05), self.MAIN_MAP_WIDTH, 0.93,
                                       fill=False, edgecolor='black', linewidth=2,
                                       transform=fig.transFigure)
             fig.patches.append(main_map_border)
             
-            # Right panel sections - Using standardized box width constructor
-            print("\n🔧 DEBUG: Creating all info boxes with dimensions:")
-            
+            # Create modular map elements with default positions
             # Title area (only title) - using standard box coordinates
-            ax_title = plt.axes(self._get_standard_box_coords(0.88, 0.10, "TITLE"))
-            
-            # Belitung overview map (compact) - using standard box coordinates
-            ax_overview = plt.axes(self._get_standard_box_coords(0.58, 0.28, "BELITUNG_OVERVIEW"))
+            title_element = TitleElement(
+                title_text=self.map_title,
+                position=self._get_standard_box_coords(0.88, 0.10, "TITLE")
+            )
             
             # Legend area - using standard box coordinates
-            ax_legend = plt.axes(self._get_standard_box_coords(0.38, 0.18, "LEGEND"))
+            legend_element = LegendElement(
+                position=self._get_standard_box_coords(0.38, 0.18, "LEGEND"),
+                file_type=self.file_type,
+                colors=self.colors,
+                gdf=self.gdf,
+                tiff_legend=self.tiff_legend
+            )
             
-            # North arrow and scale - DISABLED (moved to main map overlay)
-            # ax_north_scale = plt.axes(self._get_standard_box_coords(0.18, 0.14, "COMPASS_SCALE"))
+            # Belitung overview map (compact) - using standard box coordinates
+            belitung_element = BelitungOverviewElement(
+                position=self._get_standard_box_coords(0.58, 0.28, "BELITUNG_OVERVIEW"),
+                belitung_gdf=self.belitung_gdf,
+                main_gdf=self.gdf,
+                colors=self.colors,
+                file_type=self.file_type,
+                tiff_bounds=getattr(self, 'tiff_bounds_wgs84', None)
+            )
             
             # Logo and info area - using standard box coordinates
-            ax_logo = plt.axes(self._get_standard_box_coords(0.02, 0.14, "LOGO_INFO"))
+            logo_element = LogoInfoElement(
+                position=self._get_standard_box_coords(0.02, 0.14, "LOGO_INFO"),
+                logo_path=self.logo_path
+            )
             
-            print(f"\n🗺️ DEBUG: Main map area: Left={self.MAIN_MAP_LEFT:.3f}, Width={self.MAIN_MAP_WIDTH:.3f}, Right edge={self.MAIN_MAP_LEFT + self.MAIN_MAP_WIDTH:.3f}")
-            print(f"🗺️ DEBUG: Total figure width = 1.000, Available space = {1.0 - (self.MAIN_MAP_LEFT + self.MAIN_MAP_WIDTH):.3f}\n")
+            # Compass element only (scale bar with km ranges removed)
+            compass_element = CompassElement(compass_path=self.compass_path)
             
             # Plot main map with degree coordinates
             self._plot_main_map_degrees(ax_main)
             
-            # Add title
-            self._add_title(ax_title)
+            # Render all elements
+            title_element.render(fig)
+            legend_element.render(fig)
+            belitung_element.render(fig)
+            logo_element.render(fig)
             
-            # Add north arrow and scale - DISABLED (moved to main map overlay)
-            # self._add_north_arrow_and_scale(ax_north_scale)
+            # Add compass as overlay to main map (scale bar with km ranges removed)
+            compass_element.add_to_main_map(ax_main)
             
-            # Create legend
-            self._create_professional_legend(ax_legend)
-            
-            # Add Belitung overview map
-            self._add_belitung_overview(ax_overview)
-            
-            # Add logo and info
-            self._add_logo_and_info(ax_logo)
+            # Note: Disabled old compass/scale overlay to prevent duplicates
+            # self._add_compass_scale_overlay(ax_main)
             
             # Save the map
-            plt.savefig(output_path, dpi=dpi, bbox_inches='tight', 
+            plt.savefig(output_path, dpi=dpi, bbox_inches='tight',
                        facecolor='white', edgecolor='none')
             
             print(f"Professional map saved to: {output_path}")
@@ -556,10 +577,6 @@ class ProfessionalMapGenerator:
                    ha='center', va='bottom', fontsize=9, fontweight='bold',
                    color='black', transform=fig.transFigure, zorder=202)
         
-        # Add "Scale" title
-        fig.text(scale_x_fig + scale_width_fig/2, scale_y_fig + scale_height_fig + 0.02, 'SKALA', 
-               ha='center', va='bottom', fontsize=11, fontweight='bold',
-               color='black', transform=fig.transFigure, zorder=202)
         
         # Add CRS and coordinate system information below the scale bar
         fig.text(scale_x_fig + scale_width_fig/2, scale_y_fig - 0.05, 
@@ -765,9 +782,9 @@ class ProfessionalMapGenerator:
             pass
         
         # Scale section positioned WITHIN IMPROVED SCALE CONTAINER (updated for new container position)
-        # Scale ratio with better styling
+        # Scale ratio with enhanced styling - BOLD and LARGER
         ax.text(0.74, 0.80, '1:31.300', ha='center', va='center',
-               fontsize=16, fontweight='bold', color='#2c3e50', transform=ax.transAxes, zorder=11)
+               fontsize=20, fontweight='bold', color='#2c3e50', transform=ax.transAxes, zorder=11)
 
         # Add decorative underline below scale ratio (updated for new container position)
         ax.plot([0.58, 0.90], [0.75, 0.75], color='#e74c3c', linewidth=2, transform=ax.transAxes, zorder=10)
@@ -850,9 +867,9 @@ class ProfessionalMapGenerator:
             quarter_m = (scale_km * 1000) / 4
             labels = [f'{int(quarter_m * i)} m' if i > 0 else '0' for i in range(5)]
         
-        # Add scale labels with improved styling
+        # Add scale labels with improved styling - MOVED LOWER
         for i, (x_pos, label) in enumerate(zip(label_positions, labels)):
-            ax.text(x_pos, scale_y - 0.08, label, ha='center', va='center', 
+            ax.text(x_pos, scale_y - 0.12, label, ha='center', va='center', 
                    fontsize=9, fontweight='bold', color='#2c3e50', 
                    transform=ax.transAxes, zorder=11)
         
@@ -1146,25 +1163,24 @@ class ProfessionalMapGenerator:
                 print("Belitung overview map created successfully!")
                 
             else:
-                print("Using fallback representation...")
-                # Simple fallback representation
-                ax.text(0.5, 0.6, 'Peta Belitung\n(Simplified)', ha='center', va='center',
-                       fontsize=9, fontweight='bold', transform=ax.transAxes)
+                print("Belitung data not loaded, attempting to load real data...")
+                # Try to load the real Belitung data instead of using simplified version
+                try:
+                    if self.load_belitung_data():
+                        print("Successfully loaded Belitung data, re-rendering...")
+                        # Recursively call this method now that we have the data
+                        self._add_belitung_overview(ax)
+                        return
+                    else:
+                        print("Failed to load Belitung data from shapefile")
+                except Exception as load_error:
+                    print(f"Error loading Belitung data: {load_error}")
                 
-                # Simple island shape
-                from matplotlib.patches import Ellipse
-                island = Ellipse((0.5, 0.45), 0.6, 0.3, facecolor='lightgreen', 
-                               edgecolor='darkgreen', alpha=0.7, transform=ax.transAxes)
-                ax.add_patch(island)
-                
-                # Study area marker
-                study_marker = Rectangle((0.45, 0.4), 0.1, 0.1, facecolor='red', 
-                                       alpha=0.8, transform=ax.transAxes)
-                ax.add_patch(study_marker)
-                
-                ax.text(0.5, 0.2, 'Area Kajian', ha='center', va='center',
-                       fontsize=8, transform=ax.transAxes,
-                       bbox=dict(boxstyle='round,pad=0.2', facecolor='white'))
+                # Only show error message if we really can't load the data
+                ax.text(0.5, 0.5, 'Peta Belitung\n(Data tidak tersedia)\nPeriksa file batas_desa_belitung.shp', 
+                       ha='center', va='center', fontsize=9, fontweight='bold', 
+                       transform=ax.transAxes,
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='lightcoral', alpha=0.7))
             
         except Exception as e:
             print(f"Error in Belitung overview: {e}")

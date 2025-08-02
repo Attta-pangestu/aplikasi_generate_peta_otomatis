@@ -336,38 +336,56 @@ class MapGeneratorGUI:
             
             self.log_message("Switched to TIFF mode - raster image mapping with custom legend")
     
-    def add_tiff_legend_entry(self):
+    def add_tiff_legend_entry(self, default_color="#FF0000", default_desc=""):
         """
-        Add a new TIFF legend entry
+        Add a new TIFF legend entry with copyable hex code
         """
         entry_frame = ttk.Frame(self.tiff_legend_frame)
         entry_frame.grid(row=len(self.tiff_legend_entries), column=0, sticky=(tk.W, tk.E), pady=2)
-        entry_frame.columnconfigure(1, weight=1)
+        entry_frame.columnconfigure(2, weight=1)
         
         # Color selection button
-        color_var = tk.StringVar(value="#FF0000")  # Default red
-        color_btn = tk.Button(entry_frame, text="Color", width=8, bg=color_var.get(),
-                             command=lambda: self.choose_color(color_var, color_btn))
+        color_var = tk.StringVar(value=default_color)
+        color_btn = tk.Button(entry_frame, text="Pick", width=8, bg=color_var.get(),
+                             command=lambda: self.choose_color(color_var, color_btn, hex_entry))
         color_btn.grid(row=0, column=0, padx=5)
         
+        # Hex code entry (copyable)
+        hex_var = tk.StringVar(value=default_color)
+        hex_entry = ttk.Entry(entry_frame, textvariable=hex_var, width=10, font=('Courier', 9))
+        hex_entry.grid(row=0, column=1, padx=5)
+        
+        # Bind hex entry to update color button
+        def update_color_from_hex(*args):
+            try:
+                hex_color = hex_var.get()
+                if hex_color.startswith('#') and len(hex_color) == 7:
+                    color_var.set(hex_color)
+                    color_btn.config(bg=hex_color)
+            except:
+                pass
+        hex_var.trace('w', update_color_from_hex)
+        
         # Description entry
-        desc_var = tk.StringVar()
-        ttk.Entry(entry_frame, textvariable=desc_var, width=30).grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
+        desc_var = tk.StringVar(value=default_desc)
+        ttk.Entry(entry_frame, textvariable=desc_var, width=20).grid(row=0, column=2, padx=5, sticky=(tk.W, tk.E))
         
         # Remove button
         ttk.Button(entry_frame, text="Remove", width=8,
-                  command=lambda: self.remove_tiff_legend_entry(entry_frame, legend_entry)).grid(row=0, column=2, padx=5)
+                  command=lambda: self.remove_tiff_legend_entry(entry_frame, legend_entry)).grid(row=0, column=3, padx=5)
         
         # Store the entry
         legend_entry = {
             'frame': entry_frame,
             'color_var': color_var,
             'desc_var': desc_var,
-            'color_btn': color_btn
+            'color_btn': color_btn,
+            'hex_var': hex_var,
+            'hex_entry': hex_entry
         }
         self.tiff_legend_entries.append(legend_entry)
         
-        self.log_message(f"Added legend entry #{len(self.tiff_legend_entries)}")
+        self.log_message(f"Added legend entry #{len(self.tiff_legend_entries)} - {default_color}")
     
     def remove_tiff_legend_entry(self, frame, legend_entry):
         """
@@ -392,15 +410,18 @@ class MapGeneratorGUI:
         self.tiff_legend_entries.clear()
         self.log_message("Cleared all legend entries")
     
-    def choose_color(self, color_var, color_btn):
+    def choose_color(self, color_var, color_btn, hex_entry=None):
         """
-        Open color chooser dialog
+        Open color chooser dialog and update hex entry
         """
         from tkinter import colorchooser
         color = colorchooser.askcolor(initialcolor=color_var.get())
         if color[1]:  # If user didn't cancel
             color_var.set(color[1])
             color_btn.config(bg=color[1])
+            if hex_entry:
+                hex_entry.delete(0, tk.END)
+                hex_entry.insert(0, color[1])
             self.log_message(f"Selected color: {color[1]}")
     
     def get_tiff_legend_data(self):
@@ -410,55 +431,32 @@ class MapGeneratorGUI:
         legend_data = []
         for entry in self.tiff_legend_entries:
             if entry['desc_var'].get().strip():  # Only include entries with descriptions
+                # Use hex_var if available, otherwise fall back to color_var
+                color_value = entry.get('hex_var', entry['color_var']).get()
                 legend_data.append({
-                    'color': entry['color_var'].get(),
+                    'color': color_value,
                     'description': entry['desc_var'].get().strip()
                 })
         return legend_data
     
     def add_default_tiff_legend_entries(self):
         """
-        Add default TIFF legend entries for common land use types
+        Add default TIFF legend entries with copyable hex codes
         """
         default_entries = [
-            {"color": "#228B22", "description": "Palm Oil Plantation"},
-            {"color": "#8B4513", "description": "Bare Soil"},
-            {"color": "#4169E1", "description": "Water Bodies"},
-            {"color": "#32CD32", "description": "Natural Forest"}
+            {"color": "#6914cc", "description": "Tahap 1"},
+            {"color": "#5b9ddc", "description": "Tahap 2"},
+            {"color": "#d01975", "description": "Tahap 3"},
+            {"color": "#b1e47a", "description": "Tahap 4"}
         ]
         
         for entry_data in default_entries:
-            # Create entry frame
-            entry_frame = ttk.Frame(self.tiff_legend_frame)
-            entry_frame.grid(row=len(self.tiff_legend_entries), column=0, sticky=(tk.W, tk.E), pady=2)
-            entry_frame.columnconfigure(1, weight=1)
-            
-            # Color selection button
-            color_var = tk.StringVar(value=entry_data["color"])
-            color_btn = tk.Button(entry_frame, text="Color", width=8, bg=color_var.get(),
-                                 command=lambda cv=color_var, cb=None: self.choose_color(cv, cb))
-            color_btn.grid(row=0, column=0, padx=5)
-            
-            # Update the lambda to capture the button reference
-            color_btn.config(command=lambda cv=color_var, cb=color_btn: self.choose_color(cv, cb))
-            
-            # Description entry
-            desc_var = tk.StringVar(value=entry_data["description"])
-            ttk.Entry(entry_frame, textvariable=desc_var, width=30).grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
-            
-            # Remove button
-            legend_entry = {
-                'frame': entry_frame,
-                'color_var': color_var,
-                'desc_var': desc_var,
-                'color_btn': color_btn
-            }
-            
-            ttk.Button(entry_frame, text="Remove", width=8,
-                      command=lambda le=legend_entry: self.remove_tiff_legend_entry(le['frame'], le)).grid(row=0, column=2, padx=5)
-            
-            # Store the entry
-            self.tiff_legend_entries.append(legend_entry)
+            self.add_tiff_legend_entry(
+                default_color=entry_data["color"],
+                default_desc=entry_data["description"]
+            )
+        
+        self.log_message(f"Added {len(default_entries)} default legend entries with copyable hex codes")
     
     def load_subdivisions(self):
         """
